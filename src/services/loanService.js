@@ -9,7 +9,7 @@ const {
     sendDevolucion,
     sendAplazado,
     notifyAdminsNewLoan
-} = require('./mailService.js');  
+} = require('./mailService.js');
 
 const createLoan = async (userId, { item, aula, cantidad_prestamo }) => {
     logger.info(`Creando nueva solicitud de préstamo para usuario: ${userId}`);
@@ -34,10 +34,14 @@ const createLoan = async (userId, { item, aula, cantidad_prestamo }) => {
             logger.warn('No se pudo cargar información completa para notificación a admins');
         } else {
             logger.info('Notificando a administradores sobre nueva solicitud...');
-            await notifyAdminsNewLoan(user, loan, itemData, aulaData);
+            const result = await notifyAdminsNewLoan(user, loan, itemData, aulaData);
+            
+            if (!result.success) {
+                logger.warn('Falló notificación a admins (no crítico):', result.error);
+            }
         }
     } catch (emailError) {
-        logger.error('Error al notificar administradores, pero préstamo creado exitosamente:', emailError);
+        logger.error('Error al notificar administradores (no crítico):', emailError.message);
     }
 
     return loan;
@@ -81,13 +85,37 @@ const approveLoan = async (loanId, fechaEstimada) => {
     
     logger.info(`Stock actualizado. Nuevo stock disponible: ${item.cantidad_disponible}`);
 
-    try {
-        const populated = await Loan.findById(loan._id).populate(['usuario', 'item', 'aula']);
-        await sendAprobacion(populated.usuario, populated, populated.item);
-        logger.info(`Email de aprobación enviado a ${populated.usuario.email}`);
-    } catch (emailError) {
-        logger.error('Error enviando email de aprobación:', emailError);
-    }
+    setImmediate(async () => {
+        try {
+            const populated = await Loan.findById(loan._id).populate(['usuario', 'item', 'aula']);
+            
+            if (!populated) {
+                logger.warn('No se pudo obtener préstamo poblado para email');
+                return;
+            }
+            
+            if (!populated.usuario || !populated.usuario.email) {
+                logger.warn(`Usuario sin email en préstamo ${loan._id}`);
+                return;
+            }
+
+            if (!populated.usuario.email.includes('@')) {
+                logger.warn(`Email inválido para usuario ${populated.usuario._id}: ${populated.usuario.email}`);
+                return;
+            }
+            
+            logger.info(`📨 Enviando email de aprobación a ${populated.usuario.email}...`);
+            const emailResult = await sendAprobacion(populated.usuario, populated, populated.item);
+            
+            if (emailResult.success) {
+                logger.info(`✅ Email de aprobación enviado exitosamente a ${populated.usuario.email}`);
+            } else {
+                logger.error(`❌ Fallo al enviar email a ${populated.usuario.email}: ${emailResult.error}`);
+            }
+        } catch (emailError) {
+            logger.error('❌ Error en proceso de email de aprobación:', emailError.message);
+        }
+    });
 
     return loan;
 };
@@ -138,13 +166,32 @@ const returnLoan = async (loanId) => {
     
     logger.info(`Stock restaurado. Nuevo stock disponible: ${item.cantidad_disponible}`);
 
-    try {
-        const populated = await Loan.findById(loan._id).populate(['usuario', 'item', 'aula']);
-        await sendDevolucion(populated.usuario, populated, populated.item);
-        logger.info(`Email de devolución enviado a ${populated.usuario.email}`);
-    } catch (emailError) {
-        logger.error('Error enviando email de devolución:', emailError);
-    }
+    setImmediate(async () => {
+        try {
+            const populated = await Loan.findById(loan._id).populate(['usuario', 'item', 'aula']);
+            
+            if (!populated) {
+                logger.warn('No se pudo obtener préstamo poblado para email');
+                return;
+            }
+            
+            if (!populated.usuario || !populated.usuario.email || !populated.usuario.email.includes('@')) {
+                logger.warn(`Usuario sin email válido en préstamo ${loan._id}`);
+                return;
+            }
+            
+            logger.info(`📨 Enviando email de devolución a ${populated.usuario.email}...`);
+            const emailResult = await sendDevolucion(populated.usuario, populated, populated.item);
+            
+            if (emailResult.success) {
+                logger.info(`✅ Email de devolución enviado exitosamente a ${populated.usuario.email}`);
+            } else {
+                logger.error(`❌ Fallo al enviar email a ${populated.usuario.email}: ${emailResult.error}`);
+            }
+        } catch (emailError) {
+            logger.error('❌ Error en proceso de email de devolución:', emailError.message);
+        }
+    });
 
     return loan;
 };
@@ -165,12 +212,25 @@ const delayLoan = async (loanId, nuevaFecha) => {
     
     logger.info(`Préstamo aplazado. Nueva fecha: ${nuevaFecha}`);
 
-    try {
-        await sendAplazado(loan.usuario, loan, loan.item);
-        logger.info(`Email de aplazamiento enviado a ${loan.usuario.email}`);
-    } catch (emailError) {
-        logger.error('Error enviando email de aplazamiento:', emailError);
-    }
+    setImmediate(async () => {
+        try {
+            if (!loan.usuario || !loan.usuario.email || !loan.usuario.email.includes('@')) {
+                logger.warn(`Usuario sin email válido en préstamo ${loan._id}`);
+                return;
+            }
+            
+            logger.info(`📨 Enviando email de aplazamiento a ${loan.usuario.email}...`);
+            const emailResult = await sendAplazado(loan.usuario, loan, loan.item);
+            
+            if (emailResult.success) {
+                logger.info(`✅ Email de aplazamiento enviado exitosamente a ${loan.usuario.email}`);
+            } else {
+                logger.error(`❌ Fallo al enviar email a ${loan.usuario.email}: ${emailResult.error}`);
+            }
+        } catch (emailError) {
+            logger.error('❌ Error en proceso de email de aplazamiento:', emailError.message);
+        }
+    });
 
     return loan;
 };

@@ -18,7 +18,7 @@ const register = async (req, res, next) => {
         const { nombre, email, password } = req.body;
         const existing = await User.findOne({ email });
         if (existing) {
-            return res.status(409).json({ message: 'Email ya registrado '});
+            return res.status(409).json({ message: 'Email ya registrado' });
         }
         const passwordHash = await bcrypt.hash(password, 10);
         const user = await User.create({ nombre, email, passwordHash });
@@ -42,7 +42,7 @@ const login = async (req, res, next) => {
         }
         const isValid = await bcrypt.compare(password, user.passwordHash);
         if (!isValid) {
-            return res.status(401).json({ message: 'Credenciales inválidas'});
+            return res.status(401).json({ message: 'Credenciales inválidas' });
         }
         const token = signToken(user);
         res.json({
@@ -86,18 +86,29 @@ const requestPasswordReset = async (req, res, next) => {
         await PasswordReset.create({
             userId: user._id,
             token,
-            expiresAt: new Date(Date.now() + 60 * 60 * 1000)
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000) // 1 hora
         });
         
         const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
         
         logger.info(`Token de recuperación generado para ${email}. Enviando email...`);
         
-        await sendPasswordReset(user, resetLink, token);
-        
-        logger.info(`Email de recuperación enviado exitosamente a ${email}`);
+        setImmediate(async () => {
+            try {
+                const emailResult = await sendPasswordReset(user, resetLink);
+                
+                if (emailResult.success) {
+                    logger.info(`✅ Email de recuperación enviado exitosamente a ${email}`);
+                } else {
+                    logger.error(`❌ Fallo al enviar email de recuperación a ${email}: ${emailResult.error}`);
+                }
+            } catch (emailError) {
+                logger.error('❌ Error enviando email de recuperación (no crítico):', emailError.message);
+            }
+        });
         
         res.json({ message: successMessage });
+        
     } catch (error) {
         logger.error('Error en requestPasswordReset:', error);
         next(error);
@@ -169,7 +180,7 @@ const resetPassword = async (req, res, next) => {
         resetRequest.used = true;
         await resetRequest.save();
         
-        logger.info(`Contraseña restablecida exitosamente para usuario: ${user.email}`);
+        logger.info(`✅ Contraseña restablecida exitosamente para usuario: ${user.email}`);
         
         res.json({ 
             message: 'Contraseña restablecida exitosamente. Ya puedes iniciar sesión con tu nueva contraseña.' 
