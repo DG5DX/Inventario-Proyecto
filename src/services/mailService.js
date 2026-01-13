@@ -1,37 +1,8 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const logger = require('../config/logger.js');
 
-const createTransporter = () => {
-    const config = {
-        host: process.env.SMTP_HOST || 'smtp.gmail.com',
-        port: parseInt(process.env.SMTP_PORT) || 587,
-        secure: false,
-        auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS
-        },
-        tls: {
-            rejectUnauthorized: false
-        }
-    };
-
-    if (!config.auth.user || !config.auth.pass) {
-        logger.error('⚠️ SMTP_USER o SMTP_PASS no están configurados en las variables de entorno');
-    }
-
-    return nodemailer.createTransport(config);
-};
-
-const transporter = createTransporter();
-
-transporter.verify((error, success) => {
-    if (error) {
-        logger.error('❌ Error en configuración SMTP:', error.message);
-        logger.error('Detalles:', error);
-    } else {
-        logger.info('✅ Servidor SMTP listo para enviar emails');
-    }
-});
+// Inicializar Resend
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const formatDate = (date) => {
     if (!date) return 'N/A';
@@ -56,32 +27,35 @@ const sendEmail = async ({ to, subject, text, html }, retries = 2) => {
             throw new Error(`Email inválido: ${to}`);
         }
 
-        const mailOptions = {
-            from: process.env.MAIL_FROM || 'Sistema Inventario <noreply@example.com>',
-            to,
-            subject,
-            text,
-            html: html || `<pre>${text}</pre>`
-        };
+        if (!process.env.RESEND_API_KEY) {
+            throw new Error('RESEND_API_KEY no configurada');
+        }
 
-        const info = await transporter.sendMail(mailOptions);
+        const { data, error } = await resend.emails.send({
+            from: 'Inventario <onboarding@resend.dev>', // Usa tu dominio verificado o el de prueba
+            to: [to],
+            subject,
+            html: html || `<pre>${text}</pre>`
+        });
+
+        if (error) {
+            throw error;
+        }
         
         logger.info(`✅ Email enviado exitosamente a: ${to}`);
-        logger.info(`📬 Message ID: ${info.messageId}`);
+        logger.info(`📬 Message ID: ${data.id}`);
         
-        return { success: true, messageId: info.messageId };
+        return { success: true, messageId: data.id };
     } catch (error) {
         logger.error(`❌ Error enviando email a ${to}:`, error.message);
-        logger.error('Código de error:', error.code);
-        logger.error('Detalles completos:', JSON.stringify(error, null, 2));
         
-        if (retries > 0 && (error.code === 'ETIMEDOUT' || error.code === 'ECONNRESET')) {
+        if (retries > 0 && error.statusCode === 429) { // Rate limit
             logger.info(`🔄 Reintentando envío (${retries} intentos restantes)...`);
             await new Promise(resolve => setTimeout(resolve, 2000));
             return sendEmail({ to, subject, text, html }, retries - 1);
         }
         
-        return { success: false, error: error.message, code: error.code };
+        return { success: false, error: error.message };
     }
 };
 
@@ -90,22 +64,6 @@ const sendAprobacion = async (user, loan, item) => {
     
     const subject = 'Préstamo Aprobado - Sistema de Inventario';
     
-    const text = `
-Hola ${user.nombre},
-
-¡Tu préstamo ha sido APROBADO!
-
-Ítem: ${item.nombre}
-Cantidad: ${loan.cantidad_prestamo} unidad(es)
-Fecha estimada de devolución: ${formatDate(loan.fecha_estimada)}
-
-Por favor, devuelve el ítem antes de la fecha indicada.
-
----
-Sistema de Inventario
-Este es un mensaje automático, no responder.
-    `.trim();
-
     const html = `
 <!DOCTYPE html>
 <html>
@@ -146,7 +104,7 @@ Este es un mensaje automático, no responder.
 </html>
     `.trim();
 
-    return sendEmail({ to: user.email, subject, text, html });
+    return sendEmail({ to: user.email, subject, html });
 };
 
 const sendDevolucion = async (user, loan, item) => {
@@ -154,22 +112,6 @@ const sendDevolucion = async (user, loan, item) => {
     
     const subject = 'Devolución Registrada - Sistema de Inventario';
     
-    const text = `
-Hola ${user.nombre},
-
-Hemos registrado la devolución de tu préstamo.
-
-Ítem: ${item.nombre}
-Cantidad: ${loan.cantidad_prestamo} unidad(es)
-Fecha de devolución: ${formatDate(loan.fecha_retorno)}
-
-¡Gracias por devolver a tiempo!
-
----
-Sistema de Inventario
-Este es un mensaje automático, no responder.
-    `.trim();
-
     const html = `
 <!DOCTYPE html>
 <html>
@@ -203,14 +145,13 @@ Este es un mensaje automático, no responder.
         </div>
         <div class="footer">
             <p>Sistema de Inventario</p>
-            <p>Este es un mensaje automático, no responder.</p>
         </div>
     </div>
 </body>
 </html>
     `.trim();
 
-    return sendEmail({ to: user.email, subject, text, html });
+    return sendEmail({ to: user.email, subject, html });
 };
 
 const sendRecordatorio = async (user, loan, item) => {
@@ -218,22 +159,6 @@ const sendRecordatorio = async (user, loan, item) => {
     
     const subject = 'Recordatorio de Devolución - Sistema de Inventario';
     
-    const text = `
-Hola ${user.nombre},
-
-Este es un recordatorio de que tu préstamo debe ser devuelto pronto.
-
-Ítem: ${item.nombre}
-Cantidad: ${loan.cantidad_prestamo} unidad(es)
-Fecha límite: ${formatDate(loan.fecha_estimada)}
-
-Por favor, devuelve el ítem antes de la fecha indicada.
-
----
-Sistema de Inventario
-Este es un mensaje automático, no responder.
-    `.trim();
-
     const html = `
 <!DOCTYPE html>
 <html>
@@ -267,14 +192,13 @@ Este es un mensaje automático, no responder.
         </div>
         <div class="footer">
             <p>Sistema de Inventario</p>
-            <p>Este es un mensaje automático, no responder.</p>
         </div>
     </div>
 </body>
 </html>
     `.trim();
 
-    return sendEmail({ to: user.email, subject, text, html });
+    return sendEmail({ to: user.email, subject, html });
 };
 
 const sendAplazado = async (user, loan, item) => {
@@ -282,22 +206,6 @@ const sendAplazado = async (user, loan, item) => {
     
     const subject = 'Fecha de Préstamo Actualizada - Sistema de Inventario';
     
-    const text = `
-Hola ${user.nombre},
-
-La fecha de devolución de tu préstamo ha sido actualizada.
-
-Ítem: ${item.nombre}
-Cantidad: ${loan.cantidad_prestamo} unidad(es)
-Nueva fecha de devolución: ${formatDate(loan.fecha_estimada)}
-
-Por favor, devuelve el ítem antes de la nueva fecha indicada.
-
----
-Sistema de Inventario
-Este es un mensaje automático, no responder.
-    `.trim();
-
     const html = `
 <!DOCTYPE html>
 <html>
@@ -331,14 +239,13 @@ Este es un mensaje automático, no responder.
         </div>
         <div class="footer">
             <p>Sistema de Inventario</p>
-            <p>Este es un mensaje automático, no responder.</p>
         </div>
     </div>
 </body>
 </html>
     `.trim();
 
-    return sendEmail({ to: user.email, subject, text, html });
+    return sendEmail({ to: user.email, subject, html });
 };
 
 const notifyAdminsNewLoan = async (user, loan, item, aula) => {
@@ -358,29 +265,6 @@ const notifyAdminsNewLoan = async (user, loan, item, aula) => {
 
         const subject = 'Nueva Solicitud de Préstamo - Requiere Aprobación';
         
-        const text = `
-Nueva solicitud de préstamo recibida:
-
-DETALLES DE LA SOLICITUD
-
-Solicitante: ${user.nombre}
-Email: ${user.email}
-Ítem: ${item.nombre}
-Cantidad: ${loan.cantidad_prestamo} unidad(es)
-Ubicación: ${aula.nombre}
-Fecha: ${formatDate(loan.fecha_solicitud || new Date())}
-
-ACCIÓN REQUERIDA
-
-Por favor, ingresa al sistema para revisar y aprobar o rechazar esta solicitud.
-
-Panel de Administración > Solicitudes Pendientes
-
----
-Sistema de Inventario
-Este es un mensaje automático, no responder.
-        `.trim();
-
         const html = `
 <!DOCTYPE html>
 <html>
@@ -421,7 +305,6 @@ Este es un mensaje automático, no responder.
         </div>
         <div class="footer">
             <p>Sistema de Inventario</p>
-            <p>Este es un mensaje automático, no responder.</p>
         </div>
     </div>
 </body>
@@ -441,7 +324,7 @@ Este es un mensaje automático, no responder.
         }
 
         const results = await Promise.allSettled(
-            validAdmins.map(admin => sendEmail({ to: admin.email, subject, text, html }))
+            validAdmins.map(admin => sendEmail({ to: admin.email, subject, html }))
         );
 
         const successful = results.filter(r => r.status === 'fulfilled' && r.value?.success).length;
@@ -456,29 +339,11 @@ Este es un mensaje automático, no responder.
     }
 };
 
-const sendPasswordReset = async (user, resetLink, token) => {
+const sendPasswordReset = async (user, resetLink) => {
     logger.info(`📨 Preparando email de recuperación para: ${user.email}`);
     
     const subject = 'Recuperación de Contraseña - Sistema de Inventario';
     
-    const text = `
-Hola ${user.nombre},
-
-Recibimos una solicitud para restablecer tu contraseña.
-
-Haz click en el siguiente enlace para crear una nueva contraseña:
-
-${resetLink}
-
-Este enlace expirará en 1 hora.
-
-Si no solicitaste este cambio, ignora este email.
-
----
-Sistema de Inventario
-Este es un mensaje automático, no responder.
-    `.trim();
-
     const html = `
 <!DOCTYPE html>
 <html>
@@ -524,14 +389,13 @@ Este es un mensaje automático, no responder.
         </div>
         <div class="footer">
             <p>Sistema de Inventario</p>
-            <p>Este es un mensaje automático, no responder.</p>
         </div>
     </div>
 </body>
 </html>
     `.trim();
 
-    return sendEmail({ to: user.email, subject, text, html });
+    return sendEmail({ to: user.email, subject, html });
 };
 
 module.exports = {
