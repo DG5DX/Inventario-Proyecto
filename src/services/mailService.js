@@ -17,6 +17,31 @@ const formatDate = (date) => {
     }
 };
 
+const isProduction = process.env.NODE_ENV === 'production' && process.env.RESEND_VERIFIED_DOMAIN;
+const VERIFIED_OWNER_EMAIL = process.env.RESEND_OWNER_EMAIL || 'dafecano@gmail.com'; // Tu email verificado
+
+
+const getRecipient = (originalTo) => {
+    if (isProduction) {
+        return originalTo;
+    }
+    
+    if (originalTo.toLowerCase() === VERIFIED_OWNER_EMAIL.toLowerCase()) {
+        return originalTo;
+    }
+    
+    return 'delivered@resend.dev';
+};
+
+
+const getSubject = (originalSubject, originalTo) => {
+    if (isProduction) {
+        return originalSubject;
+    }
+    
+    return `[TEST → ${originalTo}] ${originalSubject}`;
+};
+
 const sendEmail = async ({ to, subject, text, html }, retries = 2) => {
     try {
         logger.info(`📧 Enviando email a: ${to}`);
@@ -30,10 +55,22 @@ const sendEmail = async ({ to, subject, text, html }, retries = 2) => {
             throw new Error('RESEND_API_KEY no configurada');
         }
 
+        const recipientEmail = getRecipient(to);
+        const emailSubject = getSubject(subject, to);
+        
+        if (!isProduction && recipientEmail !== to) {
+            logger.warn(`⚠️ MODO DESARROLLO: Email para ${to} será enviado a ${recipientEmail}`);
+            logger.warn(`💡 Para enviar a destinatarios reales, configura RESEND_VERIFIED_DOMAIN en las variables de entorno`);
+        }
+
+        const fromEmail = isProduction && process.env.RESEND_FROM_EMAIL 
+            ? process.env.RESEND_FROM_EMAIL 
+            : 'Inventario <onboarding@resend.dev>';
+
         const { data, error } = await resend.emails.send({
-            from: 'Inventario <onboarding@resend.dev>', 
-            to: [to],
-            subject,
+            from: fromEmail,
+            to: [recipientEmail],
+            subject: emailSubject,
             html: html || `<pre>${text}</pre>`
         });
 
@@ -42,7 +79,10 @@ const sendEmail = async ({ to, subject, text, html }, retries = 2) => {
             throw new Error(`Resend error: ${error.message || JSON.stringify(error)}`);
         }
         
-        logger.info(`✅ Email enviado exitosamente a: ${to}`);
+        logger.info(`✅ Email enviado exitosamente a: ${recipientEmail}`);
+        if (!isProduction && recipientEmail !== to) {
+            logger.info(`📬 Email original destinado a: ${to}`);
+        }
         logger.info(`📬 Message ID: ${data.id}`);
         
         return { success: true, messageId: data.id };
