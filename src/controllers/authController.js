@@ -86,12 +86,17 @@ const requestPasswordReset = async (req, res, next) => {
         await PasswordReset.create({
             userId: user._id,
             token,
-            expiresAt: new Date(Date.now() + 60 * 60 * 1000) // 1 hora
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000)
         });
         
-        const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+        const frontendUrl = process.env.FRONTEND_URL || 
+                           (req.headers.origin || req.headers.referer?.replace(/\/$/, '')) ||
+                           'https://inventario-proyecto.onrender.com';
+        
+        const resetLink = `${frontendUrl}/reset-password?token=${token}`;
         
         logger.info(`Token de recuperación generado para ${email}. Enviando email...`);
+        logger.info(`🔗 Reset link: ${resetLink}`);
         
         setImmediate(async () => {
             try {

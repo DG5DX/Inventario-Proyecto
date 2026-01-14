@@ -31,7 +31,7 @@ const sendEmail = async ({ to, subject, text, html }, retries = 2) => {
         }
 
         const { data, error } = await resend.emails.send({
-            from: 'Inventario <onboarding@resend.dev>', // Cambiar cuando tengas dominio verificado
+            from: 'Inventario <onboarding@resend.dev>', 
             to: [to],
             subject,
             html: html || `<pre>${text}</pre>`
