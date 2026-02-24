@@ -1,8 +1,8 @@
 const Item = require('../models/Item.js');
 
-const buildQuery = ({ categoria, aula, q }) => {
+const buildQuery = ({ zona, aula, q }) => {
     const query = {};
-    if (categoria) query.categoria = categoria;
+    if (zona) query.zona = zona;
     if (aula) query.aula = aula;
     if (q) {
         query.nombre = { $regex: q, $options: 'i' };
@@ -14,7 +14,7 @@ const getItems = async (req, res, next) => {
     try {
         const query = buildQuery(req.query);
         const items = await Item.find(query)
-        .populate('categoria aula')
+        .populate('zona aula')
         .sort({ nombre: 1 });
         res.json(items);
     } catch (error) {
@@ -24,7 +24,7 @@ const getItems = async (req, res, next) => {
 
 const getItem = async (req, res, next) => {
     try {
-        const item = await Item.findById(req.params.id).populate('categoria aula');
+        const item = await Item.findById(req.params.id).populate('zona aula');
         if (!item) {
             return res.status(404).json({ message: 'Ítem no encontrado '});
         }

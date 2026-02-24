@@ -12,9 +12,9 @@ const itemSchema = new mongoose.Schema({
     trim: true,
     maxlength: 500
   },
-  categoria: {
+  zona: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Category',
+    ref: 'Zone',
     required: true
   },
   aula: {
@@ -75,6 +75,6 @@ itemSchema.pre('findOneAndUpdate', function (next) {
   next();
 });
 
-itemSchema.index({ aula: 1, categoria: 1, nombre: 1 });
+itemSchema.index({ aula: 1, zona: 1, nombre: 1 });
 
 module.exports = mongoose.model('Item', itemSchema);

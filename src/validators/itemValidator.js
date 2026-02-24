@@ -6,7 +6,7 @@ const estados = ['Disponible', 'Agotado'];
 const itemBody = [
     body('nombre').trim().notEmpty().withMessage('Nombre requerido').isLength({ max: 150}),
     body('descripcion').optional().trim().isLength({ max: 500}),
-    body('categoria').isMongoId().withMessage('Categoría inválida'),
+    body('zona').isMongoId().withMessage('Zona inválida'),
     body('aula').isMongoId().withMessage('Aula inválida'),
     body('cantidad_total_stock').isInt({ min: 0 }),
     body('cantidad_disponible').isInt({ min: 0 }),
@@ -16,7 +16,7 @@ const itemBody = [
 ];
 
 const itemsQuery = [
-    query('categoria').optional().isMongoId(),
+    query('zona').optional().isMongoId(),
     query('aula').optional().isMongoId(),
     query('q').optional().trim().escape()
 ];

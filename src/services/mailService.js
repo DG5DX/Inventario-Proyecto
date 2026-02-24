@@ -1,7 +1,24 @@
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 const logger = require('../config/logger.js');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Crear transporter fresco cada vez para evitar credenciales cacheadas
+const createTransporter = () => {
+    return nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT || '587'),
+        secure: process.env.SMTP_PORT === '465',
+        auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS
+        },
+        tls: {
+            rejectUnauthorized: false
+        },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000
+    });
+};
 
 const formatDate = (date) => {
     if (!date) return 'N/A';
@@ -17,31 +34,6 @@ const formatDate = (date) => {
     }
 };
 
-const isProduction = process.env.NODE_ENV === 'production' && process.env.RESEND_VERIFIED_DOMAIN;
-const VERIFIED_OWNER_EMAIL = process.env.RESEND_OWNER_EMAIL || 'dafecano@gmail.com'; // Tu email verificado
-
-
-const getRecipient = (originalTo) => {
-    if (isProduction) {
-        return originalTo;
-    }
-    
-    if (originalTo.toLowerCase() === VERIFIED_OWNER_EMAIL.toLowerCase()) {
-        return originalTo;
-    }
-    
-    return 'delivered@resend.dev';
-};
-
-
-const getSubject = (originalSubject, originalTo) => {
-    if (isProduction) {
-        return originalSubject;
-    }
-    
-    return `[TEST → ${originalTo}] ${originalSubject}`;
-};
-
 const sendEmail = async ({ to, subject, text, html }, retries = 2) => {
     try {
         logger.info(`📧 Enviando email a: ${to}`);
@@ -51,47 +43,33 @@ const sendEmail = async ({ to, subject, text, html }, retries = 2) => {
             throw new Error(`Email inválido: ${to}`);
         }
 
-        if (!process.env.RESEND_API_KEY) {
-            throw new Error('RESEND_API_KEY no configurada');
+        if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+            throw new Error('Configuración SMTP incompleta. Verifica SMTP_HOST, SMTP_USER y SMTP_PASS');
         }
 
-        const recipientEmail = getRecipient(to);
-        const emailSubject = getSubject(subject, to);
-        
-        if (!isProduction && recipientEmail !== to) {
-            logger.warn(`⚠️ MODO DESARROLLO: Email para ${to} será enviado a ${recipientEmail}`);
-            logger.warn(`💡 Para enviar a destinatarios reales, configura RESEND_VERIFIED_DOMAIN en las variables de entorno`);
-        }
+        const transporter = createTransporter();
+        const fromEmail = process.env.MAIL_FROM || `"Inventario" <${process.env.SMTP_USER}>`;
 
-        const fromEmail = isProduction && process.env.RESEND_FROM_EMAIL 
-            ? process.env.RESEND_FROM_EMAIL 
-            : 'Inventario <onboarding@resend.dev>';
-
-        const { data, error } = await resend.emails.send({
+        const mailOptions = {
             from: fromEmail,
-            to: [recipientEmail],
-            subject: emailSubject,
+            to: to,
+            subject: subject,
+            text: text,
             html: html || `<pre>${text}</pre>`
-        });
+        };
 
-        if (error) {
-            logger.error('❌ Error de Resend API:', JSON.stringify(error, null, 2));
-            throw new Error(`Resend error: ${error.message || JSON.stringify(error)}`);
-        }
+        const info = await transporter.sendMail(mailOptions);
         
-        logger.info(`✅ Email enviado exitosamente a: ${recipientEmail}`);
-        if (!isProduction && recipientEmail !== to) {
-            logger.info(`📬 Email original destinado a: ${to}`);
-        }
-        logger.info(`📬 Message ID: ${data.id}`);
+        logger.info(`✅ Email enviado exitosamente a: ${to}`);
+        logger.info(`📬 Message ID: ${info.messageId}`);
         
-        return { success: true, messageId: data.id };
+        return { success: true, messageId: info.messageId };
         
     } catch (error) {
-        logger.error(`❌ Error enviando email a ${to}:`, error.message);
+        logger.error(`❌ Error enviando email a ${to}: ${error.message} (código: ${error.code || 'N/A'})`);
         logger.error('Stack:', error.stack);
         
-        if (retries > 0 && (error.statusCode === 429 || error.code === 'ETIMEDOUT')) {
+        if (retries > 0 && (error.code === 'ETIMEDOUT' || error.code === 'ECONNRESET')) {
             logger.info(`🔄 Reintentando envío (${retries} intentos restantes)...`);
             await new Promise(resolve => setTimeout(resolve, 2000));
             return sendEmail({ to, subject, text, html }, retries - 1);
@@ -398,7 +376,7 @@ const notifyAdminsNewLoan = async (user, loan, item, aula) => {
 const sendPasswordReset = async (user, resetLink) => {
     logger.info(`📨 Preparando email de recuperación para: ${user.email}`);
     
-    const subject = '🔑 Recuperación de Contraseña - Sistema de Inventario';
+    const subject = '🔒 Recuperación de Contraseña - Sistema de Inventario';
     
     const html = `
 <!DOCTYPE html>
@@ -419,7 +397,7 @@ const sendPasswordReset = async (user, resetLink) => {
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔑 Recuperación de Contraseña</h1>
+            <h1>🔒 Recuperación de Contraseña</h1>
         </div>
         <div class="content">
             <p>Hola <strong>${user.nombre}</strong>,</p>

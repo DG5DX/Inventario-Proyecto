@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 const { connectDB } = require('../config/db.js');
 const User = require('../models/User');
-const Category = require('../models/Category.js');
+const Zone = require('../models/Zone.js');
 const Classroom = require('../models/Classroom');
 const Item = require('../models/Item.js');
 const logger = require('../config/logger.js');
@@ -12,7 +12,7 @@ const seed = async () => {
     await connectDB();
     await Promise.all([
         User.deleteMany({}),
-        Category.deleteMany({}),
+        Zone.deleteMany({}),
         Classroom.deleteMany({}),
         Item.deleteMany({})
     ]);
@@ -25,7 +25,7 @@ const seed = async () => {
         { nombre: 'Usuario Demo', email: 'usuario@demo.com', passwordHash: userPassword, rol: 'Comun' }
     ]);
 
-    const categorias = await Category.create([
+    const zonas = await Zone.create([
     { nombre: 'Electrónica', descripcion: 'Componentes electrónicos' },
     ]);
 
@@ -33,11 +33,11 @@ const seed = async () => {
     { nombre: 'Laboratorio 101', descripcion: 'Laboratorio principal' },
     ]);
 
-    const [electronica, herramientas, material] = categorias;
+    const [electronica, herramientas, material] = zonas;
     const [lab, taller] = aulas;
 
     const itemsData = [
-    { nombre: 'Multímetro', categoria: electronica._id, aula: lab._id, cantidad_total_stock: 10, cantidad_disponible: 10, tipo_categoria: 'Herramienta de equipo', estado: 'Disponible' },
+    { nombre: 'Multímetro', zona: electronica._id, aula: lab._id, cantidad_total_stock: 10, cantidad_disponible: 10, tipo_zona: 'Herramienta de equipo', estado: 'Disponible' },
 ];
 
     await Item.insertMany(itemsData);

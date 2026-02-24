@@ -53,7 +53,7 @@ El login devuelve un token JWT que debe enviarse en el header `Authorization: Be
 
 ## Recursos principales
 
-- Categorías (`/api/categorias`): CRUD solo para rol **Admin**.
+- Zonas (`/api/zonas`): CRUD solo para rol **Admin**.
 - Aulas (`/api/aulas`): CRUD solo para rol **Admin**.
 - Ítems (`/api/items`): lectura para cualquier usuario autenticado, gestión solo **Admin**.
 - Préstamos (`/api/prestamos`):

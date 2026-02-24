@@ -8,15 +8,15 @@ const {
   delayLoan,
   getLoan,
   deleteLoan 
-} = require('../controllers/loanController');
-const authJWT = require('../middlewares/authJWT');
-const roleGuard = require('../middlewares/roleGuard');
-const validate = require('../middlewares/validate');
+} = require('../controllers/loanController.js');
+const authJWT = require('../middlewares/authJWT.js');
+const roleGuard = require('../middlewares/roleGuard.js');
+const validate = require('../middlewares/validate.js');
 const {
   createLoanValidator,
   approveLoanValidator,
   delayLoanValidator
-} = require('../validators/loanValidator');
+} = require('../validators/loanValidator.js');
 
 const router = express.Router();
 

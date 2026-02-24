@@ -12,11 +12,9 @@ const { classroomBody } = require('../validators/classroomValidator.js');
 
 const router = express.Router();
 
-router.use(authJWT, roleGuard(['Admin']));
-
-router.get('/', getClassrooms);
-router.post('/', classroomBody, validate, createClassroom);
-router.put('/:id', classroomBody, validate, updateClassroom);
-router.delete('/:id', deleteClassroom);
+router.get('/', authJWT, getClassrooms);
+router.post('/', authJWT, roleGuard(['Admin']), classroomBody, validate, createClassroom);
+router.put('/:id', authJWT, roleGuard(['Admin']), classroomBody, validate, updateClassroom);
+router.delete('/:id', authJWT, roleGuard(['Admin']), deleteClassroom);
 
 module.exports = router;
