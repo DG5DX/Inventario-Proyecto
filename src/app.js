@@ -8,19 +8,12 @@ const errorHandler = require('./middlewares/errorHandler.js');
 
 const app = express();
 
-const corsOptions = {
-    origin: process.env.CORS_ORIGIN || '*',
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-};
-
-app.use(cors(corsOptions));
-
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false
 }));
+
+app.use(cors());
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -34,14 +27,9 @@ app.use(express.static(publicPath, {
   lastModified: true
 }));
 
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok',
-    environment: process.env.NODE_ENV || 'development',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
-});
+
+const healthRoutes = require('./routes/healthRoutes.js');
+app.use('/health', healthRoutes);
 
 app.use('/api', routes);
 

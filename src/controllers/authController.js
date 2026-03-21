@@ -1,206 +1,151 @@
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const User = require('../models/User.js');
+const bcrypt        = require('bcryptjs');
+const jwt           = require('jsonwebtoken');
+const crypto        = require('crypto');
+const User          = require('../models/User.js');
 const PasswordReset = require('../models/PasswordReset.js');
-const { sendPasswordReset } = require('../services/mailService.js');
-const logger = require('../config/logger.js');
+const { sendPasswordReset, sendEmailHintToUser } = require('../services/mailService.js');
+const logger        = require('../config/logger.js');
 
-const signToken = (user) => {
-    return jwt.sign({
-        sub: user._id,
-        rol: user.rol
-    }, process.env.JWT_SECRET, { expiresIn: '12h' });
-};
+const signToken = (user) =>
+    jwt.sign({ sub: user._id, rol: user.rol }, process.env.JWT_SECRET, { expiresIn: '12h' });
 
+// ── register ──────────────────────────────────────────────────────────────────
 const register = async (req, res, next) => {
     try {
         const { nombre, email, password } = req.body;
         const existing = await User.findOne({ email });
-        if (existing) {
-            return res.status(409).json({ message: 'Email ya registrado' });
-        }
+        if (existing) return res.status(409).json({ message: 'Email ya registrado' });
         const passwordHash = await bcrypt.hash(password, 10);
         const user = await User.create({ nombre, email, passwordHash });
         const token = signToken(user);
-        res.status(201).json({
-            token,
-            nombre: user.nombre,
-            rol: user.rol
-        });
-    } catch (error) {
-        next(error);
-    }
+        res.status(201).json({ token, nombre: user.nombre, rol: user.rol });
+    } catch (error) { next(error); }
 };
 
+// ── login ─────────────────────────────────────────────────────────────────────
 const login = async (req, res, next) => {
     try {
         const { email, password } = req.body;
         const user = await User.findOne({ email });
-        if (!user) {
-            return res.status(401).json({ message: 'Credenciales inválidas' });
-        }
+        if (!user) return res.status(401).json({ message: 'Credenciales inválidas' });
         const isValid = await bcrypt.compare(password, user.passwordHash);
-        if (!isValid) {
-            return res.status(401).json({ message: 'Credenciales inválidas' });
-        }
+        if (!isValid) return res.status(401).json({ message: 'Credenciales inválidas' });
         const token = signToken(user);
-        res.json({
-            token,
-            nombre: user.nombre,
-            rol: user.rol
-        });
-    } catch (error) {
-        next(error);
+        res.json({ token, nombre: user.nombre, rol: user.rol });
+    } catch (error) { next(error); }
+};
+
+// ── me — incluye ambientes_asignados para Admins ──────────────────────────────
+const me = async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id)
+            .select('-passwordHash')
+            .populate({
+                path: 'ambientes_asignados',
+                select: '_id nombre zona',
+                populate: { path: 'zona', select: '_id nombre' }
+            });
+        if (!user) return res.status(404).json({ message: 'Usuario no encontrado' });
+        res.json(user);
+    } catch (err) {
+        const { passwordHash, ...data } = req.user;
+        res.json(data);
     }
 };
 
-const me = async (req, res) => {
-    const { passwordHash, ...data } = req.user;
-    res.json(data);
-};
-
+// ── requestPasswordReset ──────────────────────────────────────────────────────
 const requestPasswordReset = async (req, res, next) => {
     try {
         const { email } = req.body;
-        
         logger.info(`Solicitud de recuperación de contraseña para: ${email}`);
-        
         const user = await User.findOne({ email });
-        
-        const successMessage = 'Si el email existe en nuestro sistema, recibirás un correo con instrucciones para recuperar tu contraseña.';
-        
+        const successMessage = 'Si el email existe en nuestro sistema, recibirás un correo con instrucciones.';
         if (!user) {
             await new Promise(resolve => setTimeout(resolve, 500));
-            logger.warn(`Intento de recuperación para email no registrado: ${email}`);
             return res.json({ message: successMessage });
         }
-        
         const token = crypto.randomBytes(32).toString('hex');
-        
-        await PasswordReset.updateMany(
-            { userId: user._id, used: false },
-            { used: true }
-        );
-        
+        await PasswordReset.updateMany({ userId: user._id, used: false }, { used: true });
         await PasswordReset.create({
-            userId: user._id,
-            token,
+            userId: user._id, token,
             expiresAt: new Date(Date.now() + 60 * 60 * 1000)
         });
-        
-        const frontendUrl = process.env.FRONTEND_URL || 
-                           (req.headers.origin || req.headers.referer?.replace(/\/$/, '')) ||
-                           'https://inventario-proyecto.onrender.com';
-        
+        const rawUrl = process.env.FRONTEND_URL || req.headers.origin || 'http://localhost:5173';
+        const frontendUrl = rawUrl.trim().replace(/\/api\/?$/, '').replace(/\/+$/, '');
         const resetLink = `${frontendUrl}/reset-password?token=${token}`;
-        
-        logger.info(`Token de recuperación generado para ${email}. Enviando email...`);
         logger.info(`🔗 Reset link: ${resetLink}`);
-        
         setImmediate(async () => {
-            try {
-                const emailResult = await sendPasswordReset(user, resetLink);
-                
-                if (emailResult.success) {
-                    logger.info(`✅ Email de recuperación enviado exitosamente a ${email}`);
-                } else {
-                    logger.error(`❌ Fallo al enviar email de recuperación a ${email}: ${emailResult.error}`);
-                }
-            } catch (emailError) {
-                logger.error('❌ Error enviando email de recuperación (no crítico):', emailError.message);
-            }
+            try { await sendPasswordReset(user, resetLink); } catch (e) { logger.error(e.message); }
         });
-        
         res.json({ message: successMessage });
-        
-    } catch (error) {
-        logger.error('Error en requestPasswordReset:', error);
-        next(error);
-    }
+    } catch (error) { next(error); }
 };
 
+// ── verifyResetToken ──────────────────────────────────────────────────────────
 const verifyResetToken = async (req, res, next) => {
     try {
         const { token } = req.params;
-        
-        logger.info(`Verificando token de recuperación: ${token.substring(0, 10)}...`);
-        
         const resetRequest = await PasswordReset.findOne({
-            token,
-            used: false,
-            expiresAt: { $gt: new Date() }
+            token, used: false, expiresAt: { $gt: new Date() }
         }).populate('userId', 'email nombre');
-        
-        if (!resetRequest) {
-            logger.warn(`Token inválido o expirado: ${token.substring(0, 10)}...`);
-            return res.status(400).json({ 
-                message: 'Token inválido o expirado. Por favor, solicita una nueva recuperación de contraseña.' 
-            });
-        }
-        
-        logger.info(`Token válido para usuario: ${resetRequest.userId.email}`);
-        
-        res.json({ 
-            valid: true,
-            email: resetRequest.userId.email
-        });
-    } catch (error) {
-        logger.error('Error en verifyResetToken:', error);
-        next(error);
-    }
+        if (!resetRequest) return res.status(400).json({ message: 'Token inválido o expirado.' });
+        res.json({ valid: true, email: resetRequest.userId.email });
+    } catch (error) { next(error); }
 };
 
+// ── resetPassword ─────────────────────────────────────────────────────────────
 const resetPassword = async (req, res, next) => {
     try {
         const { token, newPassword } = req.body;
-        
-        logger.info(`Intento de restablecimiento de contraseña con token: ${token.substring(0, 10)}...`);
-        
         const resetRequest = await PasswordReset.findOne({
-            token,
-            used: false,
-            expiresAt: { $gt: new Date() }
+            token, used: false, expiresAt: { $gt: new Date() }
         });
-        
-        if (!resetRequest) {
-            logger.warn(`Token inválido o expirado en resetPassword: ${token.substring(0, 10)}...`);
-            return res.status(400).json({ 
-                message: 'Token inválido o expirado. Por favor, solicita una nueva recuperación de contraseña.' 
-            });
-        }
-        
+        if (!resetRequest) return res.status(400).json({ message: 'Token inválido o expirado.' });
         const user = await User.findById(resetRequest.userId);
-        
-        if (!user) {
-            logger.error(`Usuario no encontrado para token: ${token.substring(0, 10)}...`);
-            return res.status(404).json({ message: 'Usuario no encontrado' });
-        }
-        
-        const passwordHash = await bcrypt.hash(newPassword, 10);
-        
-        user.passwordHash = passwordHash;
+        if (!user) return res.status(404).json({ message: 'Usuario no encontrado' });
+        user.passwordHash = await bcrypt.hash(newPassword, 10);
         await user.save();
-        
         resetRequest.used = true;
         await resetRequest.save();
-        
-        logger.info(`✅ Contraseña restablecida exitosamente para usuario: ${user.email}`);
-        
-        res.json({ 
-            message: 'Contraseña restablecida exitosamente. Ya puedes iniciar sesión con tu nueva contraseña.' 
-        });
-    } catch (error) {
-        logger.error('Error en resetPassword:', error);
-        next(error);
-    }
+        res.json({ message: 'Contraseña restablecida exitosamente.' });
+    } catch (error) { next(error); }
+};
+
+// ── hintEmail ─────────────────────────────────────────────────────────────────
+const maskEmail = (email) => {
+    const [local, domain] = email.split('@');
+    const visible = Math.max(2, Math.floor(local.length / 3));
+    return local.slice(0, visible) + '*'.repeat(local.length - visible) + '@' + domain;
+};
+
+const hintEmail = async (req, res, next) => {
+    try {
+        const { nombre } = req.body;
+        if (!nombre || nombre.trim().length < 2)
+            return res.status(400).json({ message: 'Nombre requerido (mínimo 2 caracteres)' });
+        const regex = new RegExp(nombre.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        const users = await User.find({ nombre: regex }).select('nombre email').limit(5).lean();
+        const hints = users.map(u => ({ userId: u._id, nombre: u.nombre, emailHint: maskEmail(u.email) }));
+        res.json({ hints });
+    } catch (error) { next(error); }
+};
+
+const sendEmailHint = async (req, res, next) => {
+    try {
+        const { userId } = req.body;
+        if (!userId) return res.status(400).json({ message: 'userId requerido' });
+        const user = await User.findById(userId).select('nombre email').lean();
+        if (user) {
+            setImmediate(async () => {
+                try { await sendEmailHintToUser(user); } catch (err) { logger.error(err.message); }
+            });
+        }
+        res.json({ sent: true });
+    } catch (error) { next(error); }
 };
 
 module.exports = {
-    register,
-    login,
-    me,
-    requestPasswordReset,
-    verifyResetToken,
-    resetPassword
+    register, login, me,
+    requestPasswordReset, verifyResetToken, resetPassword,
+    hintEmail, sendEmailHint,
 };

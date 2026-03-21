@@ -12,6 +12,11 @@ const zoneSchema = new mongoose.Schema({
     type: String,
     trim: true,
     maxlength: 500
+  },
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true
   }
 }, {
   timestamps: true

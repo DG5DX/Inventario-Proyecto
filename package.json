@@ -5,8 +5,13 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
+    "seed": "node seeds.js",
+    "seed:reset": "node seeds.js --reset",
+    "seed:users": "node seeds.js --only=users",
+    "seed:zones": "node seeds.js --only=zones",
+    "seed:classrooms": "node seeds.js --only=classrooms",
+    "seed:items": "node seeds.js --only=items",
     "test": "jest --runInBand",
-    "seed": "node src/seeds/seed.js",
     "lint": "eslint ."
   },
   "keywords": [],
@@ -25,7 +30,6 @@
     "morgan": "^1.10.1",
     "node-cron": "^3.0.3",
     "nodemailer": "^7.0.12",
-    "resend": "^6.7.0",
     "winston": "^3.18.3"
   },
   "devDependencies": {

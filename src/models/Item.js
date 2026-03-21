@@ -36,9 +36,16 @@ const itemSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  numero_placa: {
+    type: String,
+    trim: true,
+    uppercase: true,
+    maxlength: 50
+    // unique e índice se declaran abajo con sparse: true
+  },
   tipo_categoria: {
     type: String,
-    enum: ['Consumible', 'Devolutivo', 'Trasladado', 'Placa SENA', 'Herramienta de equipo', 'Insumo', 'De Uso Controlado'],
+    enum: ['Consumible', 'De Uso Controlado', 'Equipo O Maquinaria'],
     required: true
   },
   estado: {
@@ -46,6 +53,32 @@ const itemSchema = new mongoose.Schema({
     enum: ['Disponible', 'Agotado'],
     required: true,
     default: 'Disponible'
+  },
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true
+  },
+  codigo_unspsc: {
+    type: String,
+    trim: true,
+    maxlength: 8,
+    match: [/^\d{8}$/, 'El código UNSPSC debe tener exactamente 8 dígitos numéricos']
+  },
+  unidad_medida: {
+    type: String,
+    trim: true,
+    maxlength: 50
+  },
+  presentacion: {
+    type: String,
+    trim: true,
+    maxlength: 300
+  },
+  cuentadante: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Cuentadante',
+    required: true
   }
 }, {
   timestamps: true
@@ -75,6 +108,11 @@ itemSchema.pre('findOneAndUpdate', function (next) {
   next();
 });
 
-itemSchema.index({ aula: 1, zona: 1, nombre: 1 });
+// Índice compuesto de ubicación — un ítem no puede repetir nombre en el mismo ambiente y sede
+itemSchema.index({ aula: 1, zona: 1, nombre: 1 }, { unique: true });
+
+// Unicidad de placa SENA — sparse: true para que null no cuente como duplicado
+// (los materiales no tienen placa, solo los equipos)
+itemSchema.index({ numero_placa: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('Item', itemSchema);

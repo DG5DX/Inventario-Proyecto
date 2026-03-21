@@ -1,50 +1,60 @@
-const Zone = require('../models/Zone.js');
+const Zone      = require('../models/Zone.js');
+const Classroom = require('../models/Classroom.js');
 
 const getZones = async (req, res, next) => {
     try {
-    const zonas = await Zone.find().sort({ nombre: 1 });
-    res.json(zonas);
-    } catch (error) {
-        next(error);
-    }
+        const soloInactivos = req.query.inactivos === 'true';
+        const query = soloInactivos ? { activo: false } : { activo: true };
+        const zonas = await Zone.find(query).sort({ nombre: 1 });
+        res.json(zonas);
+    } catch (error) { next(error); }
 };
 
 const createZone = async (req, res, next) => {
     try {
         const zona = await Zone.create(req.body);
         res.status(201).json(zona);
-    } catch (error) {
-        next(error);
-    }
+    } catch (error) { next(error); }
 };
 
 const updateZone = async (req, res, next) => {
     try {
-        const zona = await Zone.findByIdAndUpdate(req.params.id, req.body, {new: true, runValidators: true});
-        if (!zona) {
-            return res.status(404).json({message: 'Zona no encontrada'});
-        }
+        const zona = await Zone.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+        if (!zona) return res.status(404).json({ message: 'Zona no encontrada' });
         res.json(zona);
-    } catch (error) {
-        next(error);
-    }
+    } catch (error) { next(error); }
 };
 
+// Inhabilitar sede — solo si NO tiene ambientes activos
 const deleteZone = async (req, res, next) => {
     try {
-        const zona = await Zone.findByIdAndDelete(req.params.id);
-        if (!zona) {
-            return res.status(404).json({ message: 'Zona no encontrada'});
+        const zona = await Zone.findById(req.params.id);
+        if (!zona) return res.status(404).json({ message: 'Zona no encontrada' });
+        if (!zona.activo) return res.status(409).json({ message: 'La sede ya está inhabilitada' });
+
+        const ambientesActivos = await Classroom.countDocuments({ zona: zona._id, activo: true });
+        if (ambientesActivos > 0) {
+            return res.status(409).json({
+                message: `No se puede inhabilitar la sede "${zona.nombre}" porque tiene ${ambientesActivos} ambiente(s) activo(s). Inhabilita primero todos sus ambientes.`,
+                ambientesActivos,
+            });
         }
-        res.status(204).send();
-    } catch (error) {
-        next(error);
-    }
+
+        zona.activo = false;
+        await zona.save();
+        res.json({ message: `Sede "${zona.nombre}" inhabilitada correctamente.`, zona });
+    } catch (error) { next(error); }
 };
 
-module.exports = {
-    getZones,
-    createZone,
-    updateZone,
-    deleteZone
+const reactivarZone = async (req, res, next) => {
+    try {
+        const zona = await Zone.findById(req.params.id);
+        if (!zona) return res.status(404).json({ message: 'Zona no encontrada' });
+        if (zona.activo) return res.status(409).json({ message: 'La sede ya está activa' });
+        zona.activo = true;
+        await zona.save();
+        res.json({ message: `Sede "${zona.nombre}" reactivada`, zona });
+    } catch (error) { next(error); }
 };
+
+module.exports = { getZones, createZone, updateZone, deleteZone, reactivarZone };

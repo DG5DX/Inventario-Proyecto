@@ -21,9 +21,13 @@ const userSchema = new mongoose.Schema({
   },
   rol: {
     type: String,
-    enum: ['Admin', 'Comun'],
+    enum: ['SuperAdmin', 'Admin', 'Comun'],
     default: 'Comun'
-  }
+  },
+  ambientes_asignados: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Classroom'
+  }]
 }, {
   timestamps: true
 });

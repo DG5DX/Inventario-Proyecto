@@ -5,31 +5,48 @@ const {
   approveLoan,
   rejectLoan,
   returnLoan,
+  confirmPartialReturn,
   delayLoan,
   getLoan,
-  deleteLoan 
+  deleteLoan,
+  notifyReturn,
+  forceCloseLoan
 } = require('../controllers/loanController.js');
-const authJWT = require('../middlewares/authJWT.js');
-const roleGuard = require('../middlewares/roleGuard.js');
-const validate = require('../middlewares/validate.js');
+const authJWT    = require('../middlewares/authJWT.js');
+const roleGuard  = require('../middlewares/roleGuard.js');
+const validate   = require('../middlewares/validate.js');
+const { loanScope, injectScope } = require('../middlewares/scopeGuard.js');
 const {
   createLoanValidator,
   approveLoanValidator,
-  delayLoanValidator
+  delayLoanValidator,
+  rejectLoanValidator
 } = require('../validators/loanValidator.js');
 
 const router = express.Router();
 
 router.use(authJWT);
 
-router.get('/', getLoans);
+// Listar: injectScope inyecta filtro para Admins automáticamente
+router.get('/',    injectScope, getLoans);
 router.get('/:id', getLoan);
-router.post('/', roleGuard(['Comun']), createLoanValidator, validate, createLoan);
-router.post('/:id/aprobar', roleGuard(['Admin']), approveLoanValidator, validate, approveLoan);
-router.post('/:id/rechazar', roleGuard(['Admin']), rejectLoan);
-router.post('/:id/devolver', roleGuard(['Admin']), returnLoan);
-router.post('/:id/aplazar', roleGuard(['Admin']), delayLoanValidator, validate, delayLoan);
 
-router.delete('/:id', roleGuard(['Admin']), deleteLoan);
+// Crear préstamo (usuarios comunes)
+router.post('/', createLoanValidator, validate, createLoan);
+
+// Gestión admin: loanScope verifica que el préstamo sea de su scope
+router.post('/:id/aprobar',         roleGuard(['Admin']), loanScope, approveLoanValidator, validate, approveLoan);
+router.post('/:id/rechazar',        roleGuard(['Admin']), loanScope, rejectLoanValidator,  validate, rejectLoan);
+router.post('/:id/devolver',        roleGuard(['Admin']), loanScope, returnLoan);
+router.post('/:id/forzar-cierre',   roleGuard(['Admin']), loanScope, forceCloseLoan);
+router.post('/:id/confirmar-parcial', roleGuard(['Admin']), loanScope, confirmPartialReturn);
+router.post('/:id/aplazar',         roleGuard(['Admin']), loanScope, delayLoanValidator, validate, delayLoan);
+
+// Notificación de devolución (usuario común)
+router.post('/:id/notificar-devolucion', roleGuard(['Comun']), notifyReturn);
+
+// Eliminar: solo SuperAdmin puede eliminar cualquier préstamo;
+// Admin puede eliminar solo los de su scope
+router.delete('/:id', roleGuard(['Admin']), loanScope, deleteLoan);
 
 module.exports = router;
